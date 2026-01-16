@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HR Leave Analytics - Update & Reload System</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap');
+        
+        :root {
+            --hr-primary: #1e3a8a; /* Navy Blue */
+            --hr-secondary: #3b82f6; /* Bright Blue */
+            --hr-success: #10b981; /* Emerald Green */
+            --hr-warning: #f59e0b; /* Amber */
+            --hr-bg: #f8fafc;
+            --hr-text: #1e293b;
+        }
+
+        body { 
+            font-family: 'Sarabun', sans-serif; 
+            background-color: var(--hr-bg); 
+            color: var(--hr-text); 
+            overflow-x: hidden;
+        }
+
+        .chart-container { position: relative; height: 350px; width: 100%; }
+        
+        .stat-card { 
+            background: white; 
+            border: 1px solid #e2e8f0; 
+            border-radius: 1rem; 
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .stat-card:hover { 
+            border-color: var(--hr-secondary); 
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+            transform: translateY(-2px);
+        }
+
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; height: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        
+        .type-header { 
+            background-color: #f1f5f9; 
+            font-weight: 700; 
+            color: var(--hr-primary);
+            font-size: 0.75rem;
+            letter-spacing: 0.05em;
+        }
+
+        .card-accent {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 4px;
+            background: var(--hr-primary);
+        }
+
+        /* Loading Animation */
+        #loadingOverlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(4px);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid var(--hr-primary);
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay">
+        <div class="flex flex-col items-center gap-4">
+            <div class="loader"></div>
+            <p class="text-sm font-bold text-blue-900">กำลังอัปเดตข้อมูล...</p>
+        </div>
+    </div>
+
+    <div class="min-h-screen flex flex-col">
+        <!-- Header -->
+        <header class="bg-white border-b border-slate-200 px-8 py-5 flex flex-col lg:flex-row lg:items-center justify-between gap-6 sticky top-0 z-50">
+            <div class="flex items-center gap-4">
+                <div class="w-12 h-12 bg-blue-900 rounded-xl flex items-center justify-center shadow-lg shadow-blue-900/20">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                    </svg>
+                </div>
+                <div>
+                    <h1 class="text-xl font-bold text-slate-900 tracking-tight">HR Intelligence Portal</h1>
+                    <div class="flex items-center gap-2">
+                        <p class="text-[10px] text-slate-500 font-medium uppercase tracking-widest">Analytics Dashboard</p>
+                        <span id="lastUpdated" class="text-[10px] text-emerald-600 font-bold hidden">● Updated: 12:00:00</span>
+                    </div>
+                </div>
+            </div>
+            <div class="flex items-center gap-3">
+                <button id="updateBtn" class="bg-white border border-slate-200 text-slate-700 px-4 py-2.5 rounded-lg text-sm font-bold transition-all flex items-center gap-2 hover:bg-slate-50 disabled:opacity-50" disabled title="อัปเดตข้อมูลจากไฟล์ปัจจุบัน">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    Update
+                </button>
+                <input type="file" id="fileInput" accept=".csv, .xlsx, .xls" class="hidden">
+                <label for="fileInput" class="cursor-pointer bg-blue-900 hover:bg-blue-800 text-white px-6 py-2.5 rounded-lg text-sm font-bold transition-all flex items-center gap-2 shadow-md">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                    </svg>
+                    Upload Records
+                </label>
+            </div>
+        </header>
+
+        <main class="flex-grow max-w-[1400px] mx-auto w-full p-6 space-y-8">
+            
+            <!-- Strategic Filters -->
+            <div id="filterSection" class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm hidden transition-all">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+                    <div class="space-y-2">
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">ช่วงเวลาที่วิเคราะห์</label>
+                        <div class="flex items-center gap-2">
+                            <select id="yearSelectA" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-sm font-bold focus:ring-2 focus:ring-blue-500 outline-none"></select>
+                            <span class="text-slate-300 font-bold text-xs">เทียบกับ</span>
+                            <select id="yearSelectB" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-sm font-bold focus:ring-2 focus:ring-blue-500 outline-none"></select>
+                        </div>
+                    </div>
+                    <div class="space-y-2">
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">แผนก (Organization)</label>
+                        <select id="deptFilter" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500"></select>
+                    </div>
+                    <div class="space-y-2">
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">กลุ่มพนักงาน (PL Group)</label>
+                        <select id="plGroupFilter" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500">
+                            <option value="all">ทุกกลุ่ม PL Group</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="mt-4 pt-4 border-t border-slate-100 flex justify-end">
+                    <button id="resetBtn" class="text-blue-600 hover:text-blue-800 text-xs font-bold transition-colors flex items-center gap-1">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 110 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd" />
+                        </svg>
+                        ล้างการกรอง
+                    </button>
+                </div>
+            </div>
+
+            <!-- Dashboard Stats -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <div class="stat-card p-6">
+                    <div class="card-accent" style="background: var(--hr-primary);"></div>
+                    <div class="flex justify-between items-start mb-2">
+                        <p class="text-slate-500 text-[10px] font-black uppercase tracking-widest">ชั่วโมงลาสะสม</p>
+                        <div id="trendDisplay" class="text-[10px] font-bold px-2 py-1 rounded-lg"></div>
+                    </div>
+                    <h3 id="statTotalHours" class="text-4xl font-black text-slate-800">0</h3>
+                    <p class="text-[10px] text-slate-400 mt-2 font-medium italic tracking-tight">ชั่วโมงสะสมรวมในปีหลัก</p>
+                </div>
+                <div class="stat-card p-6">
+                    <div class="card-accent" style="background: var(--hr-secondary);"></div>
+                    <div class="flex justify-between items-start mb-2">
+                        <p class="text-slate-500 text-[10px] font-black uppercase tracking-widest">จำนวนครั้งที่ลา</p>
+                        <div id="trendInstances" class="text-[10px] font-bold px-2 py-1 rounded-lg"></div>
+                    </div>
+                    <h3 id="statTotalInstances" class="text-4xl font-black text-slate-800">0</h3>
+                    <p class="text-[10px] text-slate-400 mt-2 font-medium italic tracking-tight">จำนวนรายการที่บันทึกไว้</p>
+                </div>
+                <div class="stat-card p-6">
+                    <div class="card-accent" style="background: var(--hr-warning);"></div>
+                    <p class="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-2">เฉลี่ย ชม. / คน</p>
+                    <h3 id="statAvgHours" class="text-4xl font-black text-slate-800">0</h3>
+                    <p id="subStatEmp" class="text-[10px] text-slate-400 mt-2 font-medium italic tracking-tight">เฉลี่ยจากพนักงาน 0 คน</p>
+                </div>
+                <div class="stat-card p-6">
+                    <div class="card-accent" style="background: var(--hr-success);"></div>
+                    <div class="flex justify-between items-start mb-2">
+                        <p class="text-slate-500 text-[10px] font-black uppercase tracking-widest">ประเภทการลายอดฮิต</p>
+                        <div id="trendTopType" class="text-[10px] font-bold px-2 py-1 rounded-lg"></div>
+                    </div>
+                    <h3 id="statTopType" class="text-xl font-black text-slate-700 truncate mt-1">N/A</h3>
+                    <p id="statTopTypeHours" class="text-[10px] text-slate-400 mt-2 font-medium italic tracking-tight">หมวดหมู่ที่มีชั่วโมงสูงสุด</p>
+                </div>
+            </div>
+
+            <!-- Charts Row -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                <div class="lg:col-span-2 bg-white p-8 rounded-3xl border border-slate-200 shadow-sm">
+                    <h4 class="font-black text-slate-800 mb-8 text-sm uppercase tracking-widest flex items-center gap-3">
+                        <span class="w-2 h-5 bg-blue-900 rounded-full"></span>
+                        แนวโน้มการลาแต่ละประเภทรายเดือน (ชั่วโมง)
+                    </h4>
+                    <div class="chart-container">
+                        <canvas id="typeTrendLineChart"></canvas>
+                    </div>
+                </div>
+                <div class="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm">
+                    <h4 class="font-black text-slate-800 mb-8 text-sm uppercase tracking-widest flex items-center gap-3">
+                        <span class="w-2 h-5 bg-emerald-500 rounded-full"></span>
+                        สัดส่วนการลาแยกประเภท
+                    </h4>
+                    <div class="chart-container" style="height: 250px;">
+                        <canvas id="typeDoughnutChart"></canvas>
+                    </div>
+                    <div id="detailedLegend" class="mt-6 space-y-2 max-h-[150px] overflow-y-auto custom-scrollbar pr-2"></div>
+                </div>
+            </div>
+
+            <!-- Ranking -->
+            <div class="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+                <div class="p-6 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+                    <h4 class="font-black text-slate-800 text-sm uppercase tracking-widest">อันดับพนักงานที่ลางานสูงสุด (Top 3 รายประเภท)</h4>
+                </div>
+                <div class="overflow-x-auto custom-scrollbar">
+                    <table class="w-full text-left text-sm">
+                        <thead class="bg-white text-slate-400 font-bold uppercase text-[10px] tracking-[0.2em]">
+                            <tr>
+                                <th class="px-8 py-5 border-b w-24 text-center">อันดับ</th>
+                                <th class="px-6 py-5 border-b">รหัสพนักงาน</th>
+                                <th class="px-6 py-5 border-b">ชื่อ-นามสกุล</th>
+                                <th class="px-6 py-5 border-b">PL Group</th>
+                                <th class="px-6 py-5 border-b">แผนก</th>
+                                <th class="px-8 py-5 border-b text-right">ชั่วโมงรวม</th>
+                            </tr>
+                        </thead>
+                        <tbody id="top3RankingBody" class="divide-y divide-slate-100">
+                            <tr><td colspan="6" class="px-8 py-20 text-center text-slate-400 italic font-medium">รอการอัปโหลดไฟล์ข้อมูล...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+        </main>
+
+        <footer class="p-10 text-center bg-white border-t border-slate-100 mt-10">
+            <p class="text-slate-400 text-[10px] font-bold uppercase tracking-[0.3em]">SCG HEIM HR ANALYTICS PLATFORM &copy; 2024</p>
+        </footer>
+    </div>
+
+    <script>
+        let allData = [];
+        let charts = {};
+        
+        const COL_MAP = {
+            ID: 'SCG EMP ID',
+            NAME: 'Name',
+            PL: 'PL Group',
+            TYPE: 'Abs./Att. Type Text',
+            START: 'Abs./Att. Start Date',
+            HOURS: 'Hour',
+            DEPT: 'Organization'
+        };
+
+        const MONTHS = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+        const COLORS = ['#1e3a8a', '#10b981', '#3b82f6', '#f59e0b', '#6366f1', '#0ea5e9', '#8b5cf6', '#f43f5e', '#14b8a6', '#64748b'];
+
+        // Elements
+        const fileInput = document.getElementById('fileInput');
+        const updateBtn = document.getElementById('updateBtn');
+        const lastUpdated = document.getElementById('lastUpdated');
+        const loadingOverlay = document.getElementById('loadingOverlay');
+
+        fileInput.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            showLoading();
+            const ext = file.name.split('.').pop().toLowerCase();
+            
+            if (ext === 'csv') {
+                Papa.parse(file, { 
+                    header: true, 
+                    skipEmptyLines: true, 
+                    complete: (r) => {
+                        processRaw(r.data);
+                        hideLoading();
+                    }
+                });
+            } else {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const workbook = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+                    processRaw(XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]));
+                    hideLoading();
+                };
+                reader.readAsArrayBuffer(file);
+            }
+        });
+
+        updateBtn.addEventListener('click', () => {
+            if (allData.length > 0) {
+                showLoading();
+                setTimeout(() => {
+                    updateDashboard();
+                    hideLoading();
+                }, 500); // Simulate processing
+            }
+        });
+
+        function showLoading() {
+            loadingOverlay.style.display = 'flex';
+        }
+
+        function hideLoading() {
+            loadingOverlay.style.display = 'none';
+        }
+
+        function processRaw(data) {
+            // Clean and Normalize
+            allData = data.filter(r => r[COL_MAP.ID] && r[COL_MAP.START]);
+            
+            allData.forEach(r => {
+                let date;
+                if (typeof r[COL_MAP.START] === 'number') {
+                    date = new Date((r[COL_MAP.START] - 25569) * 86400000);
+                } else {
+                    date = new Date(r[COL_MAP.START]);
+                }
+                r._date = date;
+                r._year = date.getFullYear();
+                r._month = date.getMonth();
+                r._hours = parseFloat(r[COL_MAP.HOURS]) || 0;
+                r._type = r[COL_MAP.TYPE] || 'Unknown';
+                r._pl = r[COL_MAP.PL] || 'N/A';
+            });
+
+            updateBtn.disabled = false;
+            setupFilters();
+            updateDashboard();
+            document.getElementById('filterSection').classList.remove('hidden');
+        }
+
+        function setupFilters() {
+            const years = [...new Set(allData.map(r => r._year))].sort((a, b) => b - a);
+            const depts = [...new Set(allData.map(r => r[COL_MAP.DEPT]))].filter(Boolean).sort();
+            const plGroups = [...new Set(allData.map(r => r._pl))].filter(p => p !== 'N/A').sort();
+            
+            const selectA = document.getElementById('yearSelectA');
+            const selectB = document.getElementById('yearSelectB');
+            const deptSelect = document.getElementById('deptFilter');
+            const plSelect = document.getElementById('plGroupFilter');
+
+            selectA.innerHTML = years.map(y => `<option value="${y}">ปีหลัก: ${y}</option>`).join('');
+            selectB.innerHTML = years.map((y, i) => `<option value="${y}" ${i === 1 ? 'selected' : ''}>เปรียบเทียบปี: ${y}</option>`).join('');
+            
+            deptSelect.innerHTML = '<option value="all">ทุกแผนก</option>' + 
+                depts.map(d => `<option value="${d}">${d}</option>`).join('');
+            
+            plSelect.innerHTML = '<option value="all">ทุกกลุ่ม PL Group</option>' + 
+                plGroups.map(p => `<option value="${p}">${p}</option>`).join('');
+
+            [selectA, selectB, deptSelect, plSelect].forEach(s => s.onchange = updateDashboard);
+
+            document.getElementById('resetBtn').onclick = () => {
+                selectA.selectedIndex = 0;
+                deptSelect.value = 'all';
+                plSelect.value = 'all';
+                updateDashboard();
+            };
+        }
+
+        function updateDashboard() {
+            if (allData.length === 0) return;
+
+            const yrA = parseInt(document.getElementById('yearSelectA').value);
+            const yrB = parseInt(document.getElementById('yearSelectB').value);
+            const selDept = document.getElementById('deptFilter').value;
+            const selPL = document.getElementById('plGroupFilter').value;
+
+            const filterData = (yr) => allData.filter(r => {
+                const matchYear = r._year === yr;
+                const matchDept = selDept === 'all' || r[COL_MAP.DEPT] === selDept;
+                const matchPL = selPL === 'all' || r._pl === selPL;
+                return matchYear && matchDept && matchPL;
+            });
+
+            const dataA = filterData(yrA);
+            const dataB = filterData(yrB);
+
+            // Grouping logic
+            let sumA = 0, sumB = 0;
+            const typeMonthlyStats = {}; 
+            const typeOverallStats = {}; 
+            const typeOverallStatsB = {}; 
+            const empsSet = new Set();
+
+            dataA.forEach(r => {
+                sumA += r._hours;
+                empsSet.add(r[COL_MAP.ID]);
+                const t = r._type;
+                if (!typeOverallStats[t]) {
+                    typeOverallStats[t] = { sum: 0, count: 0, employees: {} };
+                    typeMonthlyStats[t] = new Array(12).fill(0);
+                }
+                typeOverallStats[t].sum += r._hours;
+                typeOverallStats[t].count += 1;
+                typeMonthlyStats[t][r._month] += r._hours;
+                const eid = r[COL_MAP.ID];
+                if (!typeOverallStats[t].employees[eid]) {
+                    typeOverallStats[t].employees[eid] = { 
+                        name: r[COL_MAP.NAME], 
+                        sum: 0, 
+                        dept: r[COL_MAP.DEPT],
+                        pl: r._pl 
+                    };
+                }
+                typeOverallStats[t].employees[eid].sum += r._hours;
+            });
+
+            dataB.forEach(r => {
+                sumB += r._hours;
+                const t = r._type;
+                if (!typeOverallStatsB[t]) typeOverallStatsB[t] = { sum: 0 };
+                typeOverallStatsB[t].sum += r._hours;
+            });
+
+            // Update UI
+            document.getElementById('statTotalHours').innerText = sumA.toLocaleString();
+            document.getElementById('statTotalInstances').innerText = dataA.length.toLocaleString();
+            const avgHours = empsSet.size > 0 ? (sumA / empsSet.size).toFixed(1) : 0;
+            document.getElementById('statAvgHours').innerText = avgHours;
+            document.getElementById('subStatEmp').innerText = `เฉลี่ยจากพนักงาน ${empsSet.size.toLocaleString()} คน`;
+
+            const sortedTypes = Object.entries(typeOverallStats).sort((a, b) => b[1].sum - a[1].sum);
+            if (sortedTypes.length > 0) {
+                const topType = sortedTypes[0][0];
+                const topTypeSumA = sortedTypes[0][1].sum;
+                document.getElementById('statTopType').innerText = topType;
+                document.getElementById('statTopTypeHours').innerText = `${topTypeSumA.toLocaleString()} ชม. (สูงสุด)`;
+
+                const trendTopTypeEl = document.getElementById('trendTopType');
+                const topTypeSumB = typeOverallStatsB[topType] ? typeOverallStatsB[topType].sum : 0;
+                if (topTypeSumB > 0) {
+                    const typeDiff = ((topTypeSumA - topTypeSumB) / topTypeSumB) * 100;
+                    trendTopTypeEl.innerText = (typeDiff >= 0 ? '+' : '') + typeDiff.toFixed(1) + '%';
+                    trendTopTypeEl.className = `text-[10px] font-bold px-2 py-1 rounded-lg ${typeDiff >= 0 ? 'bg-orange-50 text-orange-600' : 'bg-blue-50 text-blue-600'}`;
+                } else {
+                    trendTopTypeEl.innerText = 'New';
+                    trendTopTypeEl.className = 'text-[10px] font-bold px-2 py-1 rounded-lg bg-emerald-50 text-emerald-600';
+                }
+            }
+
+            // Total Hours Trend Indicator
+            const trendEl = document.getElementById('trendDisplay');
+            if (sumB > 0) {
+                const diff = ((sumA - sumB) / sumB) * 100;
+                trendEl.innerText = (diff >= 0 ? '▲ ' : '▼ ') + Math.abs(diff).toFixed(1) + '%';
+                trendEl.className = `text-[10px] font-bold px-2 py-1 rounded-lg ${diff >= 0 ? 'bg-orange-50 text-orange-600' : 'bg-emerald-50 text-emerald-600'}`;
+            } else trendEl.innerText = '';
+
+            // Instances Trend Indicator
+            const trendInstancesEl = document.getElementById('trendInstances');
+            if (dataB.length > 0) {
+                const diffInst = ((dataA.length - dataB.length) / dataB.length) * 100;
+                trendInstancesEl.innerText = (diffInst >= 0 ? '▲ ' : '▼ ') + Math.abs(diffInst).toFixed(1) + '%';
+                trendInstancesEl.className = `text-[10px] font-bold px-2 py-1 rounded-lg ${diffInst >= 0 ? 'bg-orange-50 text-orange-600' : 'bg-emerald-50 text-emerald-600'}`;
+            } else trendInstancesEl.innerText = '';
+
+            // Update Time
+            const now = new Date();
+            lastUpdated.innerText = `● Updated: ${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}:${now.getSeconds().toString().padStart(2,'0')}`;
+            lastUpdated.classList.remove('hidden');
+
+            renderCharts(sortedTypes, typeMonthlyStats, sumA);
+            renderRankingTable(typeOverallStats);
+        }
+
+        function renderCharts(sortedTypes, typeMonthlyStats, totalSum) {
+            Object.values(charts).forEach(c => c.destroy());
+
+            const trendDatasets = sortedTypes.slice(0, 5).map((t, i) => ({
+                label: t[0],
+                data: typeMonthlyStats[t[0]],
+                borderColor: COLORS[i % COLORS.length],
+                backgroundColor: COLORS[i % COLORS.length] + '11',
+                tension: 0.3,
+                fill: true,
+                borderWidth: 3,
+                pointRadius: 4,
+                pointBackgroundColor: 'white'
+            }));
+
+            charts.typeTrend = new Chart(document.getElementById('typeTrendLineChart'), {
+                type: 'line',
+                data: { labels: MONTHS, datasets: trendDatasets },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { weight: 'bold', size: 10 } } } },
+                    scales: { y: { grid: { color: '#f1f5f9' }, beginAtZero: true }, x: { grid: { display: false } } }
+                }
+            });
+
+            charts.typeDoughnut = new Chart(document.getElementById('typeDoughnutChart'), {
+                type: 'doughnut',
+                data: {
+                    labels: sortedTypes.map(t => t[0]),
+                    datasets: [{ data: sortedTypes.map(t => t[1].sum), backgroundColor: COLORS, borderWidth: 4, borderColor: '#fff' }]
+                },
+                options: { responsive: true, maintainAspectRatio: false, cutout: '80%', plugins: { legend: { display: false } } }
+            });
+
+            const legendDiv = document.getElementById('detailedLegend');
+            legendDiv.innerHTML = sortedTypes.map((t, i) => {
+                const pct = ((t[1].sum / totalSum) * 100).toFixed(1);
+                return `
+                    <div class="flex items-center justify-between text-[11px] py-1.5 border-b border-slate-50">
+                        <div class="flex items-center gap-3 overflow-hidden">
+                            <div class="w-3 h-3 rounded-md flex-shrink-0" style="background-color: ${COLORS[i % COLORS.length]}"></div>
+                            <span class="truncate font-bold text-slate-600">${t[0]}</span>
+                        </div>
+                        <span class="font-black text-slate-900">${pct}%</span>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function renderRankingTable(typeOverallStats) {
+            const tbody = document.getElementById('top3RankingBody');
+            let html = '';
+            const types = Object.keys(typeOverallStats).sort((a,b) => typeOverallStats[b].sum - typeOverallStats[a].sum);
+            if (types.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" class="px-8 py-20 text-center text-slate-400 italic">ไม่พบข้อมูล...</td></tr>';
+                return;
+            }
+            types.forEach(typeName => {
+                html += `<tr class="type-header"><td colspan="6" class="px-8 py-3 uppercase tracking-widest font-black">${typeName}</td></tr>`;
+                const emps = Object.entries(typeOverallStats[typeName].employees).sort((a, b) => b[1].sum - a[1].sum).slice(0, 3);
+                emps.forEach(([id, data], index) => {
+                    const rankColor = index === 0 ? 'bg-blue-900 text-white' : 'bg-slate-100 text-slate-500';
+                    html += `
+                        <tr class="hover:bg-slate-50 transition-all">
+                            <td class="px-8 py-4 text-center">
+                                <span class="inline-flex items-center justify-center w-7 h-7 rounded-lg text-[10px] font-black ${rankColor}">
+                                    #${index + 1}
+                                </span>
+                            </td>
+                            <td class="px-6 py-4 font-mono text-[11px] text-slate-500 font-bold">${id}</td>
+                            <td class="px-6 py-4 font-black text-slate-800">${data.name}</td>
+                            <td class="px-6 py-4"><span class="px-3 py-1 bg-slate-100 rounded-full text-[10px] font-bold text-slate-600">${data.pl}</span></td>
+                            <td class="px-6 py-4 text-slate-500 text-[11px] font-bold italic">${data.dept}</td>
+                            <td class="px-8 py-4 text-right font-black text-blue-900 text-lg">${data.sum.toLocaleString()}</td>
+                        </tr>
+                    `;
+                });
+            });
+            tbody.innerHTML = html;
+        }
+    </script>
+</body>
+</html>
